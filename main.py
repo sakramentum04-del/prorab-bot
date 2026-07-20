@@ -12,17 +12,16 @@ class BSt(StatesGroup): l=State();w=State();h=State();r=State();a=State()
 class PSt(StatesGroup): a=State();p=State();c=State();d=State()
 class FSt(StatesGroup): l=State();h=State();g=State();wk=State()
 
-def m():
+def menu():
     return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🏠 Каркасник")],[KeyboardButton(text="🧱 Дорожки")],[KeyboardButton(text="🚧 Забор")]],resize_keyboard=True)
 def yn():
     return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="✅ Да"),KeyboardButton(text="❌ Нет")]],resize_keyboard=True)
-def b():
+def back():
     return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🔙 Отмена")]],resize_keyboard=True)
 
 class Building:
     def __init__(s,l,w,h,rs,ia=False,oa=10):
-        s.L,l2,w2,h2,rs2=float(l),float(w),float(h),float(rs)
-        s.L,s.W,s.H,s.rs,s.ia,s.oa=l2,w2,h2,rs2,ia,float(oa)
+        s.L,s.W,s.H,s.rs,s.ia,s.oa=float(l),float(w),float(h),float(rs),ia,float(oa)
     def calc(s):
         p=s.L+(s.W*2) if s.ia else (s.L+s.W)*2
         wa=p*s.H;nwa=max(0,wa-s.oa);fa=s.L*s.W
@@ -56,45 +55,45 @@ class Fence:
 
 @dp.message(F.text=="/start")
 async def start(m:Message):
-    await m.answer("👋 Привет! Выбери что считаем:",reply_markup=m())
+    await m.answer("👋 Привет! Выбери что считаем:",reply_markup=menu())
 
 @dp.message(F.text=="🔙 Отмена")
 async def cancel(m:Message,s:FSMContext):
-    await s.clear();await m.answer("Главное меню:",reply_markup=m())
+    await s.clear();await m.answer("Главное меню:",reply_markup=menu())
 
 @dp.message(F.text=="🏠 Каркасник")
 async def bs(m:Message,s:FSMContext):
-    await s.set_state(BSt.l);await m.answer("🏠 КАРКАСНИК\nШаг 1/5\n\nВведите ДЛИНУ (м)\nПример: 6",reply_markup=b())
+    await s.set_state(BSt.l);await m.answer("🏠 КАРКАСНИК\nШаг 1/5\n\nВведите ДЛИНУ (м)\nПример: 6",reply_markup=back())
 
 @dp.message(BSt.l)
 async def bl(m:Message,s:FSMContext):
     try:v=float(m.text.replace(",","."))
-    except:await m.answer("❌ Введите число. Пример: 6",reply_markup=b());return
-    if v<=0 or v>50:await m.answer("❌ От 1 до 50 метров",reply_markup=b());return
+    except:await m.answer("❌ Введите число. Пример: 6",reply_markup=back());return
+    if v<=0 or v>50:await m.answer("❌ От 1 до 50 метров",reply_markup=back());return
     await s.update_data(l=v);await s.set_state(BSt.w)
-    await m.answer("Шаг 2/5\n\nВведите ШИРИНУ (м)\nПример: 8",reply_markup=b())
+    await m.answer("Шаг 2/5\n\nВведите ШИРИНУ (м)\nПример: 8",reply_markup=back())
 
 @dp.message(BSt.w)
 async def bw(m:Message,s:FSMContext):
     try:v=float(m.text.replace(",","."))
-    except:await m.answer("❌ Введите число. Пример: 8",reply_markup=b());return
-    if v<=0 or v>50:await m.answer("❌ От 1 до 50 метров",reply_markup=b());return
+    except:await m.answer("❌ Введите число. Пример: 8",reply_markup=back());return
+    if v<=0 or v>50:await m.answer("❌ От 1 до 50 метров",reply_markup=back());return
     await s.update_data(w=v);await s.set_state(BSt.h)
-    await m.answer("Шаг 3/5\n\nВведите ВЫСОТУ СТЕН (м)\nПример: 2.5",reply_markup=b())
+    await m.answer("Шаг 3/5\n\nВведите ВЫСОТУ СТЕН (м)\nПример: 2.5",reply_markup=back())
 
 @dp.message(BSt.h)
 async def bh(m:Message,s:FSMContext):
     try:v=float(m.text.replace(",","."))
-    except:await m.answer("❌ Введите число. Пример: 2.5",reply_markup=b());return
-    if v<=0 or v>10:await m.answer("❌ От 1 до 10 метров",reply_markup=b());return
+    except:await m.answer("❌ Введите число. Пример: 2.5",reply_markup=back());return
+    if v<=0 or v>10:await m.answer("❌ От 1 до 10 метров",reply_markup=back());return
     await s.update_data(h=v);await s.set_state(BSt.r)
-    await m.answer("Шаг 4/5\n\nВведите ДЛИНУ СКАТА (м)\nЕсли крыши нет - 0\nПример: 3.5",reply_markup=b())
+    await m.answer("Шаг 4/5\n\nВведите ДЛИНУ СКАТА (м)\nЕсли крыши нет - 0\nПример: 3.5",reply_markup=back())
 
 @dp.message(BSt.r)
 async def br(m:Message,s:FSMContext):
     try:v=float(m.text.replace(",","."))
-    except:await m.answer("❌ Введите число. Пример: 3.5",reply_markup=b());return
-    if v<0 or v>20:await m.answer("❌ От 0 до 20 метров",reply_markup=b());return
+    except:await m.answer("❌ Введите число. Пример: 3.5",reply_markup=back());return
+    if v<0 or v>20:await m.answer("❌ От 0 до 20 метров",reply_markup=back());return
     await s.update_data(r=v);await s.set_state(BSt.a)
     await m.answer("Шаг 5/5\n\nЭто ПРИСТРОЙ к зданию?",reply_markup=yn())
 
@@ -105,25 +104,25 @@ async def ba(m:Message,s:FSMContext):
     else:await m.answer("Нажмите кнопку",reply_markup=yn());return
     d=await s.get_data()
     c=Building(d["l"],d["w"],d["h"],d["r"],ia)
-    await m.answer(c.calc());await m.answer("✅ Готово! Выберите следующий раздел:",reply_markup=m());await s.clear()
+    await m.answer(c.calc());await m.answer("✅ Готово! Выберите следующий раздел:",reply_markup=menu());await s.clear()
 
 @dp.message(F.text=="🧱 Дорожки")
 async def ps(m:Message,s:FSMContext):
-    await s.set_state(PSt.a);await m.answer("🧱 МОЩЕНИЕ\nШаг 1/4\n\nВведите ПЛОЩАДЬ (м²)\nПример: 30",reply_markup=b())
+    await s.set_state(PSt.a);await m.answer("🧱 МОЩЕНИЕ\nШаг 1/4\n\nВведите ПЛОЩАДЬ (м²)\nПример: 30",reply_markup=back())
 
 @dp.message(PSt.a)
 async def pa(m:Message,s:FSMContext):
     try:v=float(m.text.replace(",","."))
-    except:await m.answer("❌ Введите число. Пример: 30",reply_markup=b());return
-    if v<=0 or v>1000:await m.answer("❌ От 1 до 1000 м²",reply_markup=b());return
+    except:await m.answer("❌ Введите число. Пример: 30",reply_markup=back());return
+    if v<=0 or v>1000:await m.answer("❌ От 1 до 1000 м²",reply_markup=back());return
     await s.update_data(a=v);await s.set_state(PSt.p)
-    await m.answer("Шаг 2/4\n\nВведите ПЕРИМЕТР по бордюрам (м)\nПример: 25",reply_markup=b())
+    await m.answer("Шаг 2/4\n\nВведите ПЕРИМЕТР по бордюрам (м)\nПример: 25",reply_markup=back())
 
 @dp.message(PSt.p)
 async def pp(m:Message,s:FSMContext):
     try:v=float(m.text.replace(",","."))
-    except:await m.answer("❌ Введите число. Пример: 25",reply_markup=b());return
-    if v<=0 or v>500:await m.answer("❌ От 1 до 500 метров",reply_markup=b());return
+    except:await m.answer("❌ Введите число. Пример: 25",reply_markup=back());return
+    if v<=0 or v>500:await m.answer("❌ От 1 до 500 метров",reply_markup=back());return
     await s.update_data(p=v);await s.set_state(PSt.c)
     await m.answer("Шаг 3/4\n\nДорожка КРИВОЛИНЕЙНАЯ?",reply_markup=yn())
 
@@ -133,7 +132,7 @@ async def pc(m:Message,s:FSMContext):
     elif m.text=="❌ Нет":ic=False
     else:await m.answer("Нажмите кнопку",reply_markup=yn());return
     await s.update_data(c=ic);await s.set_state(PSt.d)
-    await m.answer("Шаг 4/4\n\nГлубина выемки грунта (м)?\nПо умолч. 0.3\nВведите 0 если стандарт",reply_markup=b())
+    await m.answer("Шаг 4/4\n\nГлубина выемки грунта (м)?\nПо умолч. 0.3\nВведите 0 если стандарт",reply_markup=back())
 
 @dp.message(PSt.d)
 async def pd(m:Message,s:FSMContext):
@@ -141,44 +140,44 @@ async def pd(m:Message,s:FSMContext):
     except:v=0.3
     d=await s.get_data()
     c=Paving(d["a"],d["p"],v,d["c"])
-    await m.answer(c.calc());await m.answer("✅ Готово!",reply_markup=m());await s.clear()
+    await m.answer(c.calc());await m.answer("✅ Готово!",reply_markup=menu());await s.clear()
 
 @dp.message(F.text=="🚧 Забор")
 async def fs(m:Message,s:FSMContext):
-    await s.set_state(FSt.l);await m.answer("🚧 ЗАБОР\nШаг 1/4\n\nВведите ОБЩУЮ ДЛИНУ (м)\nПример: 50",reply_markup=b())
+    await s.set_state(FSt.l);await m.answer("🚧 ЗАБОР\nШаг 1/4\n\nВведите ОБЩУЮ ДЛИНУ (м)\nПример: 50",reply_markup=back())
 
 @dp.message(FSt.l)
 async def fl(m:Message,s:FSMContext):
     try:v=float(m.text.replace(",","."))
-    except:await m.answer("❌ Введите число. Пример: 50",reply_markup=b());return
-    if v<=0 or v>500:await m.answer("❌ От 1 до 500 метров",reply_markup=b());return
+    except:await m.answer("❌ Введите число. Пример: 50",reply_markup=back());return
+    if v<=0 or v>500:await m.answer("❌ От 1 до 500 метров",reply_markup=back());return
     await s.update_data(l=v);await s.set_state(FSt.h)
-    await m.answer("Шаг 2/4\n\nВведите ВЫСОТУ ЗАБОРА (м)\nСтандарт: 1.8 или 2.0\nПример: 1.8",reply_markup=b())
+    await m.answer("Шаг 2/4\n\nВведите ВЫСОТУ ЗАБОРА (м)\nСтандарт: 1.8 или 2.0\nПример: 1.8",reply_markup=back())
 
 @dp.message(FSt.h)
 async def fh(m:Message,s:FSMContext):
     try:v=float(m.text.replace(",","."))
-    except:await m.answer("❌ Введите число. Пример: 1.8",reply_markup=b());return
-    if v<=0 or v>5:await m.answer("❌ От 0.5 до 5 метров",reply_markup=b());return
+    except:await m.answer("❌ Введите число. Пример: 1.8",reply_markup=back());return
+    if v<=0 or v>5:await m.answer("❌ От 0.5 до 5 метров",reply_markup=back());return
     await s.update_data(h=v);await s.set_state(FSt.g)
-    await m.answer("Шаг 3/4\n\nВведите ШИРИНУ ВОРОТ (м)\nЕсли ворот нет - 0\nПример: 3",reply_markup=b())
+    await m.answer("Шаг 3/4\n\nВведите ШИРИНУ ВОРОТ (м)\nЕсли ворот нет - 0\nПример: 3",reply_markup=back())
 
 @dp.message(FSt.g)
 async def fg(m:Message,s:FSMContext):
     try:v=float(m.text.replace(",","."))
-    except:await m.answer("❌ Введите число. Пример: 3",reply_markup=b());return
-    if v<0 or v>20:await m.answer("❌ От 0 до 20 метров",reply_markup=b());return
+    except:await m.answer("❌ Введите число. Пример: 3",reply_markup=back());return
+    if v<0 or v>20:await m.answer("❌ От 0 до 20 метров",reply_markup=back());return
     await s.update_data(g=v);await s.set_state(FSt.wk)
-    await m.answer("Шаг 4/4\n\nВведите ШИРИНУ КАЛИТКИ (м)\nЕсли калитки нет - 0\nПример: 1",reply_markup=b())
+    await m.answer("Шаг 4/4\n\nВведите ШИРИНУ КАЛИТКИ (м)\nЕсли калитки нет - 0\nПример: 1",reply_markup=back())
 
 @dp.message(FSt.wk)
 async def fwk(m:Message,s:FSMContext):
     try:v=float(m.text.replace(",","."))
-    except:await m.answer("❌ Введите число. Пример: 1",reply_markup=b());return
-    if v<0 or v>5:await m.answer("❌ От 0 до 5 метров",reply_markup=b());return
+    except:await m.answer("❌ Введите число. Пример: 1",reply_markup=back());return
+    if v<0 or v>5:await m.answer("❌ От 0 до 5 метров",reply_markup=back());return
     d=await s.get_data()
     c=Fence(d["l"],d["h"],d["g"],v)
-    await m.answer(c.calc());await m.answer("✅ Готово!",reply_markup=m());await s.clear()
+    await m.answer(c.calc());await m.answer("✅ Готово!",reply_markup=menu());await s.clear()
 
 async def main():
     print("✅ Бот запущен!")
