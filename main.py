@@ -2,13 +2,9 @@ import math
 import logging
 import asyncio
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-
-# ============================================================
-# КОНФИГУРАЦИЯ
-# ============================================================
 
 BOT_TOKEN = "8960396864:AAG6hvz70PmVMk-ZrhoMH-21ZwiBBB-J-d0"
 
@@ -16,593 +12,208 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ============================================================
-# МАШИНА СОСТОЯНИЙ
-# ============================================================
-
 class BuildingStates(StatesGroup):
-    waiting_length = State()
-    waiting_width = State()
-    waiting_height = State()
-    waiting_roof_slope = State()
-    waiting_roof_type = State()
-    waiting_is_annex = State()
-    waiting_openings = State()
+    wait_len = State()
+    wait_wid = State()
+    wait_hei = State()
+    wait_roof = State()
+    wait_annex = State()
 
 class PavingStates(StatesGroup):
-    waiting_area = State()
-    waiting_perimeter = State()
-    waiting_depth = State()
-    waiting_sand = State()
-    waiting_gravel = State()
-    waiting_is_curved = State()
+    wait_area = State()
+    wait_perim = State()
+    wait_curve = State()
+    wait_depth = State()
 
 class FenceStates(StatesGroup):
-    waiting_length = State()
-    waiting_height = State()
-    waiting_gate = State()
-    waiting_wicket = State()
+    wait_len = State()
+    wait_hei = State()
+    wait_gate = State()
+    wait_wicket = State()
 
-# ============================================================
-# КЛАВИАТУРЫ
-# ============================================================
-
-def main_menu():
+def menu():
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🏠 Каркасник")],
-            [KeyboardButton(text="🧱 Дорожки")],
-            [KeyboardButton(text="🚧 Забор")]
-        ],
+        keyboard=[[KeyboardButton(text="🏠 Каркасник")],[KeyboardButton(text="🧱 Дорожки")],[KeyboardButton(text="🚧 Забор")]],
         resize_keyboard=True
     )
 
-def yes_no_kb():
+def yesno():
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="✅ Да"), KeyboardButton(text="❌ Нет")]
-        ],
+        keyboard=[[KeyboardButton(text="✅ Да"), KeyboardButton(text="❌ Нет")]],
         resize_keyboard=True
     )
 
-def roof_type_kb():
+def back():
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🏠 Двускатная")],
-            [KeyboardButton(text="📐 Односкатная")],
-            [KeyboardButton(text="🚫 Нет крыши")]
-        ],
+        keyboard=[[KeyboardButton(text="🔙 Отмена")]],
         resize_keyboard=True
     )
-
-def cancel_kb():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🔙 Отмена")]
-        ],
-        resize_keyboard=True
-    )
-
-# ============================================================
-# МОДУЛЬ 1: РАСЧЕТ КАРКАСНИКА
-# ============================================================
 
 class Building:
-    def __init__(self, length, width, wall_height, roof_slope_len,
-                 is_annex=False, openings_area=10.0):
-        self.L = float(length)
-        self.W = float(width)
-        self.H = float(wall_height)
-        self.roof_slope = float(roof_slope_len)
-        self.is_annex = is_annex
-        self.openings = float(openings_area)
-    
-    def calculate(self):
-        if self.is_annex:
-            perimeter = self.L + 2 * self.W
-        else:
-            perimeter = 2 * (self.L + self.W)
-        
-        wall_area = perimeter * self.H
-        net_wall_area = max(0, wall_area - self.openings)
-        floor_area = self.L * self.W
-        
-        half_width = self.W / 2
-        if self.roof_slope > half_width:
-            roof_height = math.sqrt(self.roof_slope**2 - half_width**2)
-            gable_area = 2 * (0.5 * self.W * roof_height)
-        else:
-            gable_area = 0.0
-        
-        stud_count = math.ceil(perimeter / 0.59) + 1
-        studs_volume = stud_count * self.H * 0.05 * 0.10
-        
-        joist_count = math.ceil(self.L / 0.40) + 1
-        joists_volume = joist_count * self.W * 0.04 * 0.15
-        joists_volume += floor_area * 0.04
-        
-        lath_count = math.ceil(self.H / 0.30)
-        lath_volume = lath_count * perimeter * 0.025 * 0.15
-        lath_volume += floor_area * 0.025
-        
-        vent_count = math.ceil(perimeter / 0.40)
-        vent_volume = vent_count * self.H * 0.05 * 0.04
-        
-        rafters_volume = 0.0
-        if self.roof_slope > 0:
-            rafter_count = math.ceil(self.W / 0.60) + 1
-            rafters_volume = rafter_count * self.roof_slope * 0.05 * 0.15
-        
-        siding_straight = wall_area * 1.10
-        siding_gable = gable_area * 1.20
-        total_siding = siding_straight + siding_gable - self.openings
-        
-        membrane_area = (net_wall_area + gable_area) * 1.15
-        
-        result = (
-            f"📊 ОТЧЕТ ПО КАРКАСНИКУ\n"
-            f"{'='*30}\n\n"
-            f"📐 Геометрия:\n"
-            f"  Периметр стен: {perimeter:.1f} м\n"
-            f"  Площадь стен: {wall_area:.1f} м²\n"
-            f"  Чистая площадь: {net_wall_area:.1f} м²\n"
-            f"  Площадь пола: {floor_area:.1f} м²\n"
-            f"  Фронтоны: {gable_area:.1f} м²\n\n"
-            f"🪵 Пиломатериалы:\n"
-            f"  Стойки 50х100: {studs_volume:.3f} м³ ({stud_count} шт)\n"
-            f"  Лаги пола 40х150: {joists_volume:.3f} м³\n"
-            f"  Обрешетка 25х150: {lath_volume:.3f} м³\n"
-            f"  Вентзазор 50х40: {vent_volume:.3f} м³\n"
-            f"  Стропила 50х150: {rafters_volume:.3f} м³\n\n"
-            f"📦 Материалы:\n"
-            f"  Сайдинг: {total_siding:.1f} м²\n"
-            f"  Пленки/мембраны: {membrane_area:.1f} м²\n\n"
-            f"Тип: {'Пристрой' if self.is_annex else 'Отдельное здание'}"
-        )
-        return result
-
-# ============================================================
-# МОДУЛЬ 2: РАСЧЕТ МОЩЕНИЯ
-# ============================================================
+    def __init__(self, l, w, h, rs, ia=False, oa=10.0):
+        self.L, self.W, self.H, self.rs, self.ia, self.oa = float(l), float(w), float(h), float(rs), ia, float(oa)
+    def calc(self):
+        p = self.L + (self.W*2) if self.ia else (self.L+self.W)*2
+        wa = p*self.H; nwa = max(0, wa-self.oa); fa = self.L*self.W
+        hw = self.W/2
+        ga = 2*(0.5*self.W*math.sqrt(self.rs**2-hw**2)) if self.rs>hw else 0
+        sc = math.ceil(p/0.59)+1; sv = sc*self.H*0.05*0.1
+        jc = math.ceil(self.L/0.40)+1; jv = jc*self.W*0.04*0.15 + fa*0.04
+        lc = math.ceil(self.H/0.30); lv = lc*p*0.025*0.15 + fa*0.025
+        vc = math.ceil(p/0.40); vv = vc*self.H*0.05*0.04
+        rv = 0
+        if self.rs>0: rc = math.ceil(self.W/0.60)+1; rv = rc*self.rs*0.05*0.15
+        ss = wa*1.1 + ga*1.2 - self.oa
+        mv = (nwa+ga)*1.15
+        return (f"📊 КАРКАСНИК\n{'─'*25}\n📐 Стены: {wa:.1f}м² | Чистые: {nwa:.1f}м²\n📐 Пол: {fa:.1f}м² | Фронтоны: {ga:.1f}м²\n\n🪵 Стойки 50×100: {sv:.3f}м³ ({sc}шт)\n🪵 Лаги 40×150: {jv:.3f}м³\n🪵 Обрешетка 25×150: {lv:.3f}м³\n🪵 Вентзазор 50×40: {vv:.3f}м³\n🪵 Стропила 50×150: {rv:.3f}м³\n\n📦 Сайдинг: {ss:.1f}м²\n📦 Пленки: {mv:.1f}м²\n\n🏷 {'ПРИСТРОЙ' if self.ia else 'ДОМ'}")
 
 class Paving:
-    def __init__(self, area, perimeter, depth=0.3,
-                 sand_thick=0.1, gravel_thick=0.15,
-                 is_curved=False):
-        self.S = float(area)
-        self.P = float(perimeter)
-        self.depth = float(depth)
-        self.sand = float(sand_thick)
-        self.gravel = float(gravel_thick)
-        self.is_curved = is_curved
-    
-    def calculate(self):
-        excavation_volume = self.S * self.depth
-        gravel_volume = self.S * self.gravel * 1.3
-        sand_volume = self.S * self.sand * 1.2
-        geotextile_area = self.S * 1.10
-        waste_coef = 1.12 if self.is_curved else 1.05
-        tile_area = self.S * waste_coef
-        border_concrete = self.P * 0.05
-        
-        result = (
-            f"🧱 ОТЧЕТ ПО МОЩЕНИЮ\n"
-            f"{'='*30}\n\n"
-            f"🕳 Земляные работы:\n"
-            f"  Выемка грунта: {excavation_volume:.2f} м³\n"
-            f"  Периметр бордюров: {self.P:.1f} м\n\n"
-            f"🧱 Подушка:\n"
-            f"  Щебень: {gravel_volume:.2f} м³\n"
-            f"  Песок: {sand_volume:.2f} м³\n\n"
-            f"📦 Материалы:\n"
-            f"  Геотекстиль: {geotextile_area:.1f} м²\n"
-            f"  Плитка: {tile_area:.1f} м²\n"
-            f"  Бетон М200: {border_concrete:.2f} м³\n\n"
-            f"Тип: {'Криволинейная' if self.is_curved else 'Прямая'}"
-        )
-        return result
-
-# ============================================================
-# МОДУЛЬ 3: РАСЧЕТ ЗАБОРА
-# ============================================================
+    def __init__(self, a, p, d=0.3, ic=False):
+        self.S, self.P, self.d, self.ic = float(a), float(p), float(d), ic
+    def calc(self):
+        ev = self.S*self.d; gv = self.S*0.15*1.3; sv = self.S*0.1*1.2
+        gt = self.S*1.1; tc = 1.12 if self.ic else 1.05; ta = self.S*tc
+        bc = self.P*0.05
+        return (f"🧱 МОЩЕНИЕ\n{'─'*25}\n🕳 Выемка: {ev:.2f}м³\n🧱 Щебень: {gv:.2f}м³\n🧱 Песок: {sv:.2f}м³\n📦 Геотекстиль: {gt:.1f}м²\n📦 Плитка: {ta:.1f}м²\n📦 Бетон М200: {bc:.2f}м³\n\n🏷 {'Радиусная' if self.ic else 'Прямая'}")
 
 class Fence:
-    def __init__(self, total_length, height, gate_length=4.0, wicket_length=1.0):
-        self.L = float(total_length)
-        self.H = float(height)
-        self.gate_L = float(gate_length)
-        self.wicket_L = float(wicket_length)
-    
-    def calculate(self):
-        net_length = self.L - self.gate_L - self.wicket_L
-        if net_length < 0:
-            net_length = 0
-        
-        posts_count = math.ceil(net_length / 2.5) + 1
-        total_posts_length = posts_count * (self.H + 1.2)
-        hole_volume = math.pi * (0.1 ** 2) * 1.2
-        total_concrete = posts_count * hole_volume
-        total_logs_length = net_length * 2
-        sheets_count = math.ceil(net_length / 1.15)
-        sheet_area = sheets_count * self.H * 1.05
-        
-        result = (
-            f"🚧 ОТЧЕТ ПО ЗАБОРУ\n"
-            f"{'='*30}\n\n"
-            f"📏 Параметры:\n"
-            f"  Длина: {self.L:.1f} м\n"
-            f"  Высота: {self.H:.1f} м\n"
-            f"  Ворота: {self.gate_L:.1f} м\n"
-            f"  Калитка: {self.wicket_L:.1f} м\n"
-            f"  Чистая длина: {net_length:.1f} м\n\n"
-            f"🪵 Каркас:\n"
-            f"  Столбов: {posts_count} шт\n"
-            f"  Труба на столбы: {total_posts_length:.1f} м\n"
-            f"  Бетон: {total_concrete:.2f} м³\n"
-            f"  Прожилины: {total_logs_length:.1f} м\n\n"
-            f"📦 Зашивка:\n"
-            f"  Профлист С8: {sheets_count} листов\n"
-            f"  Площадь: {sheet_area:.1f} м²"
-        )
-        return result
+    def __init__(self, l, h, gl=4, wl=1):
+        self.L, self.H, self.gl, self.wl = float(l), float(h), float(gl), float(wl)
+    def calc(self):
+        nl = max(0, self.L-self.gl-self.wl)
+        pc = math.ceil(nl/2.5)+1; tl = pc*(self.H+1.2)
+        hv = math.pi*0.01*1.2; tc = pc*hv; ll = nl*2
+        sc = math.ceil(nl/1.15); sa = sc*self.H*1.05
+        return (f"🚧 ЗАБОР\n{'─'*25}\n📏 Длина: {self.L:.1f}м | Высота: {self.H:.1f}м\n📏 Чистая: {nl:.1f}м | Ворота: {self.gl:.1f}м | Калитка: {self.wl:.1f}м\n\n🪵 Столбов: {pc}шт\n🪵 Трубы: {tl:.1f}м\n🪵 Прожилины: {ll:.1f}м\n📦 Бетон: {tc:.2f}м³\n📦 Профлист С8: {sc}л ({sa:.1f}м²)")
 
-# ============================================================
-# СТАРТ
-# ============================================================
+@dp.message(F.text=="/start")
+async def start(m: Message):
+    await m.answer("👋 Привет! Выбери что считаем:", reply_markup=menu())
 
-@dp.message(F.text == "/start")
-async def cmd_start(message: Message):
-    await message.answer(
-        "👋 Привет, Прораб!\n\n"
-        "Помогу рассчитать материалы для стройки.\n"
-        "Выбери что считаем:",
-        reply_markup=main_menu()
-    )
+@dp.message(F.text=="🔙 Отмена")
+async def cancel(m: Message, s: FSMContext):
+    await s.clear(); await m.answer("Главное меню:", reply_markup=menu())
 
-@dp.message(F.text == "🔙 Отмена")
-async def cmd_cancel(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("Возвращаюсь в главное меню.", reply_markup=main_menu())
+@dp.message(F.text=="🏠 Каркасник")
+async def b_start(m: Message, s: FSMContext):
+    await s.set_state(BuildingStates.wait_len)
+    await m.answer("🏠 КАРКАСНИК\nШаг 1/5\nДлина здания (м)?\nПример: 6", reply_markup=back())
 
-# ============================================================
-# КАРКАСНИК - ПОШАГОВЫЙ ВВОД
-# ============================================================
+@dp.message(BuildingStates.wait_len)
+async def b_len(m: Message, s: FSMContext):
+    try: v=float(m.text.replace(",","."));
+    except: await m.answer("Введите число. Пример: 6", reply_markup=back()); return
+    if v<=0 or v>50: await m.answer("От 1 до 50 метров", reply_markup=back()); return
+    await s.update_data(l=v); await s.set_state(BuildingStates.wait_wid)
+    await m.answer("Шаг 2/5\nШирина здания (м)?\nПример: 8", reply_markup=back())
 
-@dp.message(F.text == "🏠 Каркасник")
-async def building_start(message: Message, state: FSMContext):
-    await state.set_state(BuildingStates.waiting_length)
-    await message.answer(
-        "🏠 КАРКАСНИК\n\n"
-        "Шаг 1 из 6\n\n"
-        "Введите ДЛИНУ здания в метрах.\n"
-        "Пример: 6",
-        reply_markup=cancel_kb()
-    )
+@dp.message(BuildingStates.wait_wid)
+async def b_wid(m: Message, s: FSMContext):
+    try: v=float(m.text.replace(",","."));
+    except: await m.answer("Введите число. Пример: 8", reply_markup=back()); return
+    if v<=0 or v>50: await m.answer("От 1 до 50 метров", reply_markup=back()); return
+    await s.update_data(w=v); await s.set_state(BuildingStates.wait_hei)
+    await m.answer("Шаг 3/5\nВысота стен (м)?\nПример: 2.5", reply_markup=back())
 
-@dp.message(BuildingStates.waiting_length)
-async def building_length(message: Message, state: FSMContext):
-    try:
-        val = float(message.text.replace(",", "."))
-        if val <= 0 or val > 50:
-            raise ValueError
-        await state.update_data(length=val)
-        await state.set_state(BuildingStates.waiting_width)
-        await message.answer(
-            "Шаг 2 из 6\n\n"
-            "Введите ШИРИНУ здания в метрах.\n"
-            "Пример: 8",
-            reply_markup=cancel_kb()
-        )
-    except:
-        await message.answer("❌ Ошибка! Введите число от 1 до 50.\nПример: 6", reply_markup=cancel_kb())
+@dp.message(BuildingStates.wait_hei)
+async def b_hei(m: Message, s: FSMContext):
+    try: v=float(m.text.replace(",","."));
+    except: await m.answer("Введите число. Пример: 2.5", reply_markup=back()); return
+    if v<=0 or v>10: await m.answer("От 1 до 10 метров", reply_markup=back()); return
+    await s.update_data(h=v); await s.set_state(BuildingStates.wait_roof)
+    await m.answer("Шаг 4/5\nДлина ската крыши (м)?\nЕсли крыши нет - введите 0\nПример: 3.5", reply_markup=back())
 
-@dp.message(BuildingStates.waiting_width)
-async def building_width(message: Message, state: FSMContext):
-    try:
-        val = float(message.text.replace(",", "."))
-        if val <= 0 or val > 50:
-            raise ValueError
-        await state.update_data(width=val)
-        await state.set_state(BuildingStates.waiting_height)
-        await message.answer(
-            "Шаг 3 из 6\n\n"
-            "Введите ВЫСОТУ стен в метрах.\n"
-            "Пример: 2.5",
-            reply_markup=cancel_kb()
-        )
-    except:
-        await message.answer("❌ Ошибка! Введите число от 1 до 10.\nПример: 2.5", reply_markup=cancel_kb())
+@dp.message(BuildingStates.wait_roof)
+async def b_roof(m: Message, s: FSMContext):
+    try: v=float(m.text.replace(",","."));
+    except: await m.answer("Введите число. Пример: 3.5", reply_markup=back()); return
+    if v<0 or v>20: await m.answer("От 0 до 20 метров", reply_markup=back()); return
+    await s.update_data(rs=v); await s.set_state(BuildingStates.wait_annex)
+    await m.answer("Шаг 5/5\nЭто пристрой к зданию?", reply_markup=yesno())
 
-@dp.message(BuildingStates.waiting_height)
-async def building_height(message: Message, state: FSMContext):
-    try:
-        val = float(message.text.replace(",", "."))
-        if val <= 0 or val > 10:
-            raise ValueError
-        await state.update_data(height=val)
-        await state.set_state(BuildingStates.waiting_roof_type)
-        await message.answer(
-            "Шаг 4 из 6\n\n"
-            "Выберите тип крыши:",
-            reply_markup=roof_type_kb()
-        )
-    except:
-        await message.answer("❌ Ошибка! Введите число от 1 до 10.\nПример: 2.5", reply_markup=cancel_kb())
+@dp.message(BuildingStates.wait_annex)
+async def b_annex(m: Message, s: FSMContext):
+    if m.text=="✅ Да": ia=True
+    elif m.text=="❌ Нет": ia=False
+    else: await m.answer("Нажмите кнопку", reply_markup=yesno()); return
+    d=await s.get_data()
+    c=Building(d["l"],d["w"],d["h"],d["rs"],ia)
+    await m.answer(c.calc(), reply_markup=menu()); await s.clear()
 
-@dp.message(BuildingStates.waiting_roof_type)
-async def building_roof_type(message: Message, state: FSMContext):
-    text = message.text
-    if text == "🏠 Двускатная":
-        await state.update_data(roof_type="gable")
-        await state.set_state(BuildingStates.waiting_roof_slope)
-        await message.answer(
-            "Шаг 5 из 6\n\n"
-            "Введите ДЛИНУ СКАТА кровли в метрах.\n"
-            "Пример: 4",
-            reply_markup=cancel_kb()
-        )
-    elif text == "📐 Односкатная":
-        await state.update_data(roof_type="shed")
-        await state.set_state(BuildingStates.waiting_roof_slope)
-        await message.answer(
-            "Шаг 5 из 6\n\n"
-            "Введите ДЛИНУ СКАТА кровли в метрах.\n"
-            "Пример: 3",
-            reply_markup=cancel_kb()
-        )
-    elif text == "🚫 Нет крыши":
-        await state.update_data(roof_type="none", roof_slope=0)
-        await state.set_state(BuildingStates.waiting_is_annex)
-        await message.answer(
-            "Шаг 5 из 6\n\n"
-            "Это ПРИСТРОЙ к существующему зданию?",
-            reply_markup=yes_no_kb()
-        )
-    else:
-        await message.answer("Нажмите на одну из кнопок.", reply_markup=roof_type_kb())
+@dp.message(F.text=="🧱 Дорожки")
+async def p_start(m: Message, s: FSMContext):
+    await s.set_state(PavingStates.wait_area)
+    await m.answer("🧱 МОЩЕНИЕ\nШаг 1/4\nПлощадь мощения (м²)?\nПример: 30", reply_markup=back())
 
-@dp.message(BuildingStates.waiting_roof_slope)
-async def building_roof_slope(message: Message, state: FSMContext):
-    try:
-        val = float(message.text.replace(",", "."))
-        if val <= 0 or val > 20:
-            raise ValueError
-        await state.update_data(roof_slope=val)
-        await state.set_state(BuildingStates.waiting_is_annex)
-        await message.answer(
-            "Шаг 6 из 6\n\n"
-            "Это ПРИСТРОЙ к существующему зданию?",
-            reply_markup=yes_no_kb()
-        )
-    except:
-        await message.answer("❌ Ошибка! Введите число от 0.5 до 20.\nПример: 4", reply_markup=cancel_kb())
+@dp.message(PavingStates.wait_area)
+async def p_area(m: Message, s: FSMContext):
+    try: v=float(m.text.replace(",","."));
+    except: await m.answer("Введите число. Пример: 30", reply_markup=back()); return
+    if v<=0 or v>1000: await m.answer("От 1 до 1000 м²", reply_markup=back()); return
+    await s.update_data(a=v); await s.set_state(PavingStates.wait_perim)
+    await m.answer("Шаг 2/4\nПериметр по бордюрам (м)?\nПример: 25", reply_markup=back())
 
-@dp.message(BuildingStates.waiting_is_annex)
-async def building_annex(message: Message, state: FSMContext):
-    data = await state.get_data()
-    if message.text == "✅ Да":
-        data["is_annex"] = True
-    elif message.text == "❌ Нет":
-        data["is_annex"] = False
-    else:
-        await message.answer("Нажмите Да или Нет.", reply_markup=yes_no_kb())
-        return
-    
-    await state.set_state(BuildingStates.waiting_openings)
-    await message.answer(
-        "Введите площадь окон и дверей в м².\n"
-        "По умолчанию: 10 м²\n"
-        "Если не знаете - просто отправьте 0",
-        reply_markup=cancel_kb()
-    )
+@dp.message(PavingStates.wait_perim)
+async def p_perim(m: Message, s: FSMContext):
+    try: v=float(m.text.replace(",","."));
+    except: await m.answer("Введите число. Пример: 25", reply_markup=back()); return
+    if v<=0 or v>500: await m.answer("От 1 до 500 метров", reply_markup=back()); return
+    await s.update_data(p=v); await s.set_state(PavingStates.wait_curve)
+    await m.answer("Шаг 3/4\nДорожка криволинейная (радиусная)?", reply_markup=yesno())
 
-@dp.message(BuildingStates.waiting_openings)
-async def building_openings(message: Message, state: FSMContext):
-    try:
-        val = float(message.text.replace(",", "."))
-        if val == 0:
-            val = 10.0
-        await state.update_data(openings=val)
-    except:
-        await state.update_data(openings=10.0)
-    
-    data = await state.get_data()
-    calc = Building(
-        length=data["length"],
-        width=data["width"],
-        wall_height=data["height"],
-        roof_slope_len=data.get("roof_slope", 0),
-        is_annex=data.get("is_annex", False),
-        openings_area=data.get("openings", 10.0)
-    )
-    
-    await message.answer(calc.calculate(), reply_markup=main_menu())
-    await state.clear()
+@dp.message(PavingStates.wait_curve)
+async def p_curve(m: Message, s: FSMContext):
+    if m.text=="✅ Да": ic=True
+    elif m.text=="❌ Нет": ic=False
+    else: await m.answer("Нажмите кнопку", reply_markup=yesno()); return
+    await s.update_data(ic=ic); await s.set_state(PavingStates.wait_depth)
+    await m.answer("Шаг 4/4\nГлубина выемки грунта (м)?\nПо умолчанию 0.3\nВведите 0 если стандартная", reply_markup=back())
 
-# ============================================================
-# МОЩЕНИЕ - ПОШАГОВЫЙ ВВОД
-# ============================================================
+@dp.message(PavingStates.wait_depth)
+async def p_depth(m: Message, s: FSMContext):
+    try: v=float(m.text.replace(",",".")); v=v if v>0 else 0.3
+    except: v=0.3
+    d=await s.get_data()
+    c=Paving(d["a"],d["p"],v,d["ic"])
+    await m.answer(c.calc(), reply_markup=menu()); await s.clear()
 
-@dp.message(F.text == "🧱 Дорожки")
-async def paving_start(message: Message, state: FSMContext):
-    await state.set_state(PavingStates.waiting_area)
-    await message.answer(
-        "🧱 МОЩЕНИЕ\n\n"
-        "Шаг 1 из 4\n\n"
-        "Введите ПЛОЩАДЬ мощения в м².\n"
-        "Пример: 30",
-        reply_markup=cancel_kb()
-    )
+@dp.message(F.text=="🚧 Забор")
+async def f_start(m: Message, s: FSMContext):
+    await s.set_state(FenceStates.wait_len)
+    await m.answer("🚧 ЗАБОР\nШаг 1/4\nОбщая длина забора (м)?\nПример: 50", reply_markup=back())
 
-@dp.message(PavingStates.waiting_area)
-async def paving_area(message: Message, state: FSMContext):
-    try:
-        val = float(message.text.replace(",", "."))
-        if val <= 0 or val > 1000:
-            raise ValueError
-        await state.update_data(area=val)
-        await state.set_state(PavingStates.waiting_perimeter)
-        await message.answer(
-            "Шаг 2 из 4\n\n"
-            "Введите ПЕРИМЕТР по бордюрам в метрах.\n"
-            "Пример: 25",
-            reply_markup=cancel_kb()
-        )
-    except:
-        await message.answer("❌ Ошибка! Введите число от 1 до 1000.\nПример: 30", reply_markup=cancel_kb())
+@dp.message(FenceStates.wait_len)
+async def f_len(m: Message, s: FSMContext):
+    try: v=float(m.text.replace(",","."));
+    except: await m.answer("Введите число. Пример: 50", reply_markup=back()); return
+    if v<=0 or v>500: await m.answer("От 1 до 500 метров", reply_markup=back()); return
+    await s.update_data(l=v); await s.set_state(FenceStates.wait_hei)
+    await m.answer("Шаг 2/4\nВысота забора (м)?\nСтандарт: 1.8 или 2.0\nПример: 1.8", reply_markup=back())
 
-@dp.message(PavingStates.waiting_perimeter)
-async def paving_perimeter(message: Message, state: FSMContext):
-    try:
-        val = float(message.text.replace(",", "."))
-        if val <= 0 or val > 500:
-            raise ValueError
-        await state.update_data(perimeter=val)
-        await state.set_state(PavingStates.waiting_is_curved)
-        await message.answer(
-            "Шаг 3 из 4\n\n"
-            "Дорожка КРИВОЛИНЕЙНАЯ (радиусная)?\n"
-            "Для прямой выберите Нет",
-            reply_markup=yes_no_kb()
-        )
-    except:
-        await message.answer("❌ Ошибка! Введите число от 1 до 500.\nПример: 25", reply_markup=cancel_kb())
+@dp.message(FenceStates.wait_hei)
+async def f_hei(m: Message, s: FSMContext):
+    try: v=float(m.text.replace(",","."));
+    except: await m.answer("Введите число. Пример: 1.8", reply_markup=back()); return
+    if v<=0 or v>5: await m.answer("От 0.5 до 5 метров", reply_markup=back()); return
+    await s.update_data(h=v); await s.set_state(FenceStates.wait_gate)
+    await m.answer("Шаг 3/4\nШирина ворот (м)?\nЕсли ворот нет - 0\nПример: 3", reply_markup=back())
 
-@dp.message(PavingStates.waiting_is_curved)
-async def paving_curved(message: Message, state: FSMContext):
-    if message.text == "✅ Да":
-        await state.update_data(is_curved=True)
-    elif message.text == "❌ Нет":
-        await state.update_data(is_curved=False)
-    else:
-        await message.answer("Нажмите Да или Нет.", reply_markup=yes_no_kb())
-        return
-    
-    await state.set_state(PavingStates.waiting_depth)
-    await message.answer(
-        "Шаг 4 из 4\n\n"
-        "Введите ГЛУБИНУ выемки грунта (корыто) в метрах.\n"
-        "По умолчанию: 0.3 м\n"
-        "Просто отправьте 0 если стандартная",
-        reply_markup=cancel_kb()
-    )
+@dp.message(FenceStates.wait_gate)
+async def f_gate(m: Message, s: FSMContext):
+    try: v=float(m.text.replace(",","."));
+    except: await m.answer("Введите число. Пример: 3", reply_markup=back()); return
+    if v<0 or v>20: await m.answer("От 0 до 20 метров", reply_markup=back()); return
+    await s.update_data(g=v); await s.set_state(FenceStates.wait_wicket)
+    await m.answer("Шаг 4/4\nШирина калитки (м)?\nЕсли калитки нет - 0\nПример: 1", reply_markup=back())
 
-@dp.message(PavingStates.waiting_depth)
-async def paving_depth(message: Message, state: FSMContext):
-    try:
-        val = float(message.text.replace(",", "."))
-        if val <= 0:
-            val = 0.3
-        await state.update_data(depth=val)
-    except:
-        await state.update_data(depth=0.3)
-    
-    await state.update_data(sand=0.1, gravel=0.15)
-    
-    data = await state.get_data()
-    calc = Paving(
-        area=data["area"],
-        perimeter=data["perimeter"],
-        depth=data["depth"],
-        is_curved=data.get("is_curved", False)
-    )
-    
-    await message.answer(calc.calculate(), reply_markup=main_menu())
-    await state.clear()
-
-# ============================================================
-# ЗАБОР - ПОШАГОВЫЙ ВВОД
-# ============================================================
-
-@dp.message(F.text == "🚧 Забор")
-async def fence_start(message: Message, state: FSMContext):
-    await state.set_state(FenceStates.waiting_length)
-    await message.answer(
-        "🚧 ЗАБОР ИЗ ПРОФЛИСТА\n\n"
-        "Шаг 1 из 4\n\n"
-        "Введите ОБЩУЮ ДЛИНУ забора в метрах.\n"
-        "Пример: 50",
-        reply_markup=cancel_kb()
-    )
-
-@dp.message(FenceStates.waiting_length)
-async def fence_length(message: Message, state: FSMContext):
-    try:
-        val = float(message.text.replace(",", "."))
-        if val <= 0 or val > 500:
-            raise ValueError
-        await state.update_data(length=val)
-        await state.set_state(FenceStates.waiting_height)
-        await message.answer(
-            "Шаг 2 из 4\n\n"
-            "Введите ВЫСОТУ забора в метрах.\n"
-            "Стандарт: 1.8 м или 2.0 м\n"
-            "Пример: 1.8",
-            reply_markup=cancel_kb()
-        )
-    except:
-        await message.answer("❌ Ошибка! Введите число от 1 до 500.\nПример: 50", reply_markup=cancel_kb())
-
-@dp.message(FenceStates.waiting_height)
-async def fence_height(message: Message, state: FSMContext):
-    try:
-        val = float(message.text.replace(",", "."))
-        if val <= 0 or val > 5:
-            raise ValueError
-        await state.update_data(height=val)
-        await state.set_state(FenceStates.waiting_gate)
-        await message.answer(
-            "Шаг 3 из 4\n\n"
-            "Введите ШИРИНУ ВОРОТ в метрах.\n"
-            "Если ворот нет - введите 0\n"
-            "Стандарт: 3-4 метра",
-            reply_markup=cancel_kb()
-        )
-    except:
-        await message.answer("❌ Ошибка! Введите число от 0 до 5.\nПример: 1.8", reply_markup=cancel_kb())
-
-@dp.message(FenceStates.waiting_gate)
-async def fence_gate(message: Message, state: FSMContext):
-    try:
-        val = float(message.text.replace(",", "."))
-        if val < 0 or val > 20:
-            raise ValueError
-        await state.update_data(gate=val)
-        await state.set_state(FenceStates.waiting_wicket)
-        await message.answer(
-            "Шаг 4 из 4\n\n"
-            "Введите ШИРИНУ КАЛИТКИ в метрах.\n"
-            "Если калитки нет - введите 0\n"
-            "Стандарт: 0.8-1.2 метра",
-            reply_markup=cancel_kb()
-        )
-    except:
-        await message.answer("❌ Ошибка! Введите число от 0 до 20.\nПример: 3", reply_markup=cancel_kb())
-
-@dp.message(FenceStates.waiting_wicket)
-async def fence_wicket(message: Message, state: FSMContext):
-    try:
-        val = float(message.text.replace(",", "."))
-        if val < 0 or val > 5:
-            raise ValueError
-        await state.update_data(wicket=val)
-    except:
-        await state.update_data(wicket=0)
-    
-    data = await state.get_data()
-    calc = Fence(
-        total_length=data["length"],
-        height=data["height"],
-        gate_length=data.get("gate", 0),
-        wicket_length=data.get("wicket", 0)
-    )
-    
-    await message.answer(calc.calculate(), reply_markup=main_menu())
-    await state.clear()
-
-# ============================================================
-# ЗАПУСК
-# ============================================================
+@dp.message(FenceStates.wait_wicket)
+async def f_wicket(m: Message, s: FSMContext):
+    try: v=float(m.text.replace(",","."));
+    except: v=0
+    if v<0 or v>5: await m.answer("От 0 до 5 метров", reply_markup=back()); return
+    d=await s.get_data()
+    c=Fence(d["l"],d["h"],d["g"],v)
+    await m.answer(c.calc(), reply_markup=menu()); await s.clear()
 
 async def main():
     print("Бот запущен!")
