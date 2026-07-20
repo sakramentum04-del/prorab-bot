@@ -2,7 +2,7 @@ import math
 import logging
 import asyncio
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
@@ -17,47 +17,77 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # ============================================================
-# МАШИНА СОСТОЯНИЙ (FSM)
+# МАШИНА СОСТОЯНИЙ
 # ============================================================
 
-class OrderStates(StatesGroup):
-    waiting_for_building = State()
-    waiting_for_paving = State()
-    waiting_for_fence = State()
+class BuildingStates(StatesGroup):
+    waiting_length = State()
+    waiting_width = State()
+    waiting_height = State()
+    waiting_roof_slope = State()
+    waiting_roof_type = State()
+    waiting_is_annex = State()
+    waiting_openings = State()
+
+class PavingStates(StatesGroup):
+    waiting_area = State()
+    waiting_perimeter = State()
+    waiting_depth = State()
+    waiting_sand = State()
+    waiting_gravel = State()
+    waiting_is_curved = State()
+
+class FenceStates(StatesGroup):
+    waiting_length = State()
+    waiting_height = State()
+    waiting_gate = State()
+    waiting_wicket = State()
 
 # ============================================================
-# КЛАВИАТУРА ГЛАВНОГО МЕНЮ
+# КЛАВИАТУРЫ
 # ============================================================
 
-main_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="🏠 Каркасник/Пристрой")],
-        [KeyboardButton(text="🧱 Дорожки и брусчатка")],
-        [KeyboardButton(text="🚧 Забор из профлиста")]
-    ],
-    resize_keyboard=True
-)
+def main_menu():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🏠 Каркасник")],
+            [KeyboardButton(text="🧱 Дорожки")],
+            [KeyboardButton(text="🚧 Забор")]
+        ],
+        resize_keyboard=True
+    )
+
+def yes_no_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="✅ Да"), KeyboardButton(text="❌ Нет")]
+        ],
+        resize_keyboard=True
+    )
+
+def roof_type_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🏠 Двускатная")],
+            [KeyboardButton(text="📐 Односкатная")],
+            [KeyboardButton(text="🚫 Нет крыши")]
+        ],
+        resize_keyboard=True
+    )
+
+def cancel_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🔙 Отмена")]
+        ],
+        resize_keyboard=True
+    )
 
 # ============================================================
-# МОДУЛЬ 1: РАСЧЕТ КАРКАСНИКА / ПРИСТРОЯ
+# МОДУЛЬ 1: РАСЧЕТ КАРКАСНИКА
 # ============================================================
 
 class Building:
-    """
-    Расчет каркасного строения/пристроя.
-    
-    Вход: длина, ширина, высота стен, длина ската кровли,
-          флаг пристроя (True/False), площадь проемов (по умолчанию 10 м²)
-    
-    Конструктивные требования:
-    - Шаг стоек стен 50х100: 590 мм в свету
-    - Шаг лаг пола 40х150: 400 мм
-    - Обрешетка стен 25х150: шаг 300 мм
-    - Вентзазор брусок 50х40: шаг 400 мм
-    - Запас сайдинга: прямые стены 10%, фронтоны 20%
-    - Нахлест мембран: 15%
-    """
-    
     def __init__(self, length, width, wall_height, roof_slope_len,
                  is_annex=False, openings_area=10.0):
         self.L = float(length)
@@ -68,8 +98,6 @@ class Building:
         self.openings = float(openings_area)
     
     def calculate(self):
-        # --- Геометрия стен ---
-        # Если пристрой, одна длинная стена исключается
         if self.is_annex:
             perimeter = self.L + 2 * self.W
         else:
@@ -77,11 +105,8 @@ class Building:
         
         wall_area = perimeter * self.H
         net_wall_area = max(0, wall_area - self.openings)
-        
-        # --- Площадь пола/потолка ---
         floor_area = self.L * self.W
         
-        # --- Фронтоны (треугольные части кровли) ---
         half_width = self.W / 2
         if self.roof_slope > half_width:
             roof_height = math.sqrt(self.roof_slope**2 - half_width**2)
@@ -89,81 +114,58 @@ class Building:
         else:
             gable_area = 0.0
         
-        # --- Стойки стен 50х100 (шаг 590 мм) ---
         stud_count = math.ceil(perimeter / 0.59) + 1
         studs_volume = stud_count * self.H * 0.05 * 0.10
         
-        # --- Лаги пола 40х150 (шаг 400 мм) ---
         joist_count = math.ceil(self.L / 0.40) + 1
         joists_volume = joist_count * self.W * 0.04 * 0.15
-        # + запас на балки перекрытия (площадь пола * 0.04)
         joists_volume += floor_area * 0.04
         
-        # --- Обрешетка стен 25х150 (шаг 300 мм) ---
         lath_count = math.ceil(self.H / 0.30)
         lath_volume = lath_count * perimeter * 0.025 * 0.15
-        # + обрешетка потолка
         lath_volume += floor_area * 0.025
         
-        # --- Вентзазор брусок 50х40 (шаг 400 мм) ---
         vent_count = math.ceil(perimeter / 0.40)
         vent_volume = vent_count * self.H * 0.05 * 0.04
         
-        # --- Стропила (если есть кровля, шаг 600 мм) ---
         rafters_volume = 0.0
         if self.roof_slope > 0:
             rafter_count = math.ceil(self.W / 0.60) + 1
             rafters_volume = rafter_count * self.roof_slope * 0.05 * 0.15
         
-        # --- Сайдинг с запасом на подрезку ---
         siding_straight = wall_area * 1.10
         siding_gable = gable_area * 1.20
         total_siding = siding_straight + siding_gable - self.openings
         
-        # --- Мембраны (ветрозащита/пароизоляция) с нахлестом 15% ---
         membrane_area = (net_wall_area + gable_area) * 1.15
         
-        # --- Формирование отчета ---
         result = (
-            f"📊 <b>ОТЧЕТ ПО КАРКАСНИКУ/ПРИСТРОЮ</b>\n\n"
-            f"📐 <b>Геометрия объекта:</b>\n"
-            f"• Периметр стен: {perimeter:.1f} м\n"
-            f"• Площадь стен (черная): {wall_area:.1f} м²\n"
-            f"• Площадь стен (чистая): {net_wall_area:.1f} м²\n"
-            f"• Площадь пола/потолка: {floor_area:.1f} м²\n"
-            f"• Площадь фронтонов: {gable_area:.1f} м²\n\n"
-            f"🪵 <b>Пиломатериалы:</b>\n"
-            f"• Стойки стен 50х100 (шаг 590 мм): {studs_volume:.3f} м³ ({stud_count} шт)\n"
-            f"• Лаги пола 40х150 (шаг 400 мм): {joists_volume:.3f} м³\n"
-            f"• Обрешетка стен 25х150 (шаг 300 мм): {lath_volume:.3f} м³\n"
-            f"• Брусок вентзазора 50х40 (шаг 400 мм): {vent_volume:.3f} м³\n"
-            f"• Стропила 50х150 (шаг 600 мм): {rafters_volume:.3f} м³\n\n"
-            f"📦 <b>Материалы с запасом:</b>\n"
-            f"• Сайдинг (+10% стены, +20% фронтоны): {total_siding:.1f} м²\n"
-            f"• Пленки/мембраны (+15% нахлест): {membrane_area:.1f} м²"
+            f"📊 ОТЧЕТ ПО КАРКАСНИКУ\n"
+            f"{'='*30}\n\n"
+            f"📐 Геометрия:\n"
+            f"  Периметр стен: {perimeter:.1f} м\n"
+            f"  Площадь стен: {wall_area:.1f} м²\n"
+            f"  Чистая площадь: {net_wall_area:.1f} м²\n"
+            f"  Площадь пола: {floor_area:.1f} м²\n"
+            f"  Фронтоны: {gable_area:.1f} м²\n\n"
+            f"🪵 Пиломатериалы:\n"
+            f"  Стойки 50х100: {studs_volume:.3f} м³ ({stud_count} шт)\n"
+            f"  Лаги пола 40х150: {joists_volume:.3f} м³\n"
+            f"  Обрешетка 25х150: {lath_volume:.3f} м³\n"
+            f"  Вентзазор 50х40: {vent_volume:.3f} м³\n"
+            f"  Стропила 50х150: {rafters_volume:.3f} м³\n\n"
+            f"📦 Материалы:\n"
+            f"  Сайдинг: {total_siding:.1f} м²\n"
+            f"  Пленки/мембраны: {membrane_area:.1f} м²\n\n"
+            f"Тип: {'Пристрой' if self.is_annex else 'Отдельное здание'}"
         )
         return result
 
 # ============================================================
-# МОДУЛЬ 2: РАСЧЕТ МОЩЕНИЯ / ДОРОЖЕК
+# МОДУЛЬ 2: РАСЧЕТ МОЩЕНИЯ
 # ============================================================
 
 class Paving:
-    """
-    Расчет мощения: дорожки, отмостки, парковки, площадки.
-    
-    Вход: площадь мощения, периметр (для бордюров),
-          глубина выемки, толщина песка, толщина щебня,
-          флаг криволинейности (True/False)
-    
-    Коэффициенты:
-    - Уплотнение щебня/ПГС: 1.3
-    - Уплотнение песка/ПЩС: 1.2
-    - Запас геотекстиля: 10%
-    - Подрезка плитки: прямая 5%, радиусная 12%
-    - Бетон на фиксацию бордюров: 0.05 м³/пог.м
-    """
-    
     def __init__(self, area, perimeter, depth=0.3,
                  sand_thick=0.1, gravel_thick=0.15,
                  is_curved=False):
@@ -175,324 +177,436 @@ class Paving:
         self.is_curved = is_curved
     
     def calculate(self):
-        # --- Выемка грунта ---
         excavation_volume = self.S * self.depth
-        
-        # --- Подушка из щебня/ПГС (коэф. уплотнения 1.3) ---
         gravel_volume = self.S * self.gravel * 1.3
-        
-        # --- Подушка из песка/ПЩС (коэф. уплотнения 1.2) ---
         sand_volume = self.S * self.sand * 1.2
-        
-        # --- Геотекстиль (запас 10% на нахлесты и подвороты) ---
         geotextile_area = self.S * 1.10
-        
-        # --- Брусчатка/плитка ---
         waste_coef = 1.12 if self.is_curved else 1.05
         tile_area = self.S * waste_coef
-        
-        # --- Бетон на фиксацию бордюров (0.05 м³ на пог.м) ---
         border_concrete = self.P * 0.05
         
-        # --- Формирование отчета ---
         result = (
-            f"🧱 <b>ОТЧЕТ ПО МОЩЕНИЮ</b>\n\n"
-            f"🕳 <b>Земляные работы:</b>\n"
-            f"• Выемка грунта (корыто): {excavation_volume:.2f} м³\n"
-            f"• Периметр бордюров: {self.P:.1f} пог.м\n\n"
-            f"🧱 <b>Подушка основания:</b>\n"
-            f"• Щебень/ПГС (с уплотнением ×1.3): {gravel_volume:.2f} м³\n"
-            f"• Песок/ПЩС (с уплотнением ×1.2): {sand_volume:.2f} м³\n\n"
-            f"📦 <b>Материалы для закупа:</b>\n"
-            f"• Геотекстиль (+10% нахлест): {geotextile_area:.1f} м²\n"
-            f"• Брусчатка/плитка (подрезка {12 if self.is_curved else 5}%): {tile_area:.1f} м²\n"
-            f"• Бетон М200 на замки бордюров: {border_concrete:.2f} м³"
+            f"🧱 ОТЧЕТ ПО МОЩЕНИЮ\n"
+            f"{'='*30}\n\n"
+            f"🕳 Земляные работы:\n"
+            f"  Выемка грунта: {excavation_volume:.2f} м³\n"
+            f"  Периметр бордюров: {self.P:.1f} м\n\n"
+            f"🧱 Подушка:\n"
+            f"  Щебень: {gravel_volume:.2f} м³\n"
+            f"  Песок: {sand_volume:.2f} м³\n\n"
+            f"📦 Материалы:\n"
+            f"  Геотекстиль: {geotextile_area:.1f} м²\n"
+            f"  Плитка: {tile_area:.1f} м²\n"
+            f"  Бетон М200: {border_concrete:.2f} м³\n\n"
+            f"Тип: {'Криволинейная' if self.is_curved else 'Прямая'}"
         )
         return result
 
 # ============================================================
-# МОДУЛЬ 3: РАСЧЕТ ЗАБОРА ИЗ ПРОФЛИСТА
+# МОДУЛЬ 3: РАСЧЕТ ЗАБОРА
 # ============================================================
 
 class Fence:
-    """
-    Расчет забора из профлиста С8.
-    
-    Вход: общая длина забора, высота,
-          шаг столбов (2.5 м), количество лаг (2),
-          длина ворот, длина калитки
-    
-    Конструктивные требования:
-    - Заглубление столбов: 1.2 м
-    - Диаметр лунки: 200 мм (радиус 0.1 м)
-    - Прожилины: профиль 40х20
-    - Полезная ширина профлиста С8: 1.15 м
-    - Нахлест: 1 волна
-    """
-    
-    def __init__(self, total_length, height, step=2.5,
-                 logs_count=2, gate_length=4.0,
-                 wicket_length=1.0):
+    def __init__(self, total_length, height, gate_length=4.0, wicket_length=1.0):
         self.L = float(total_length)
         self.H = float(height)
-        self.step = float(step)
-        self.logs = int(logs_count)
         self.gate_L = float(gate_length)
         self.wicket_L = float(wicket_length)
     
     def calculate(self):
-        # Чистая длина забора без ворот и калитки
         net_length = self.L - self.gate_L - self.wicket_L
         if net_length < 0:
             net_length = 0
         
-        # --- Количество и объем столбов ---
-        posts_count = math.ceil(net_length / self.step) + 1
-        total_posts_length = posts_count * (self.H + 1.2)  # +1.2 на заглубление
-        
-        # --- Объем бетона под лунки ---
-        # Объем одной лунки: π * r² * h = 3.14 * 0.1² * 1.2
+        posts_count = math.ceil(net_length / 2.5) + 1
+        total_posts_length = posts_count * (self.H + 1.2)
         hole_volume = math.pi * (0.1 ** 2) * 1.2
         total_concrete = posts_count * hole_volume
-        
-        # --- Прожилины (лаги 40х20) ---
-        total_logs_length = net_length * self.logs
-        
-        # --- Профлист С8 ---
-        # Полезная ширина листа 1.15 м
+        total_logs_length = net_length * 2
         sheets_count = math.ceil(net_length / 1.15)
-        # Общая площадь профлиста с запасом 5%
         sheet_area = sheets_count * self.H * 1.05
         
-        # --- Формирование отчета ---
         result = (
-            f"🚧 <b>ОТЧЕТ ПО ЗАБОРУ ИЗ ПРОФЛИСТА</b>\n\n"
-            f"📏 <b>Параметры ограждения:</b>\n"
-            f"• Общая длина: {self.L:.1f} м\n"
-            f"• Высота: {self.H:.1f} м\n"
-            f"• Ворота: {self.gate_L:.1f} м\n"
-            f"• Калитка: {self.wicket_L:.1f} м\n"
-            f"• Чистая длина забора: {net_length:.1f} м\n\n"
-            f"🪵 <b>Каркас и фундамент:</b>\n"
-            f"• Столбов: {posts_count} шт\n"
-            f"• Профиль на столбы (60×60): {total_posts_length:.1f} пог.м\n"
-            f"• Бетон под лунки (Ø200 мм, глубина 1.2 м): {total_concrete:.2f} м³\n"
-            f"• Прожилины 40×20 (2 ряда): {total_logs_length:.1f} пог.м\n\n"
-            f"📦 <b>Зашивка:</b>\n"
-            f"• Профлист С8 (полезная ширина 1.15 м): {sheets_count} листов\n"
-            f"• Общая площадь профлиста (+5% запас): {sheet_area:.1f} м²"
+            f"🚧 ОТЧЕТ ПО ЗАБОРУ\n"
+            f"{'='*30}\n\n"
+            f"📏 Параметры:\n"
+            f"  Длина: {self.L:.1f} м\n"
+            f"  Высота: {self.H:.1f} м\n"
+            f"  Ворота: {self.gate_L:.1f} м\n"
+            f"  Калитка: {self.wicket_L:.1f} м\n"
+            f"  Чистая длина: {net_length:.1f} м\n\n"
+            f"🪵 Каркас:\n"
+            f"  Столбов: {posts_count} шт\n"
+            f"  Труба на столбы: {total_posts_length:.1f} м\n"
+            f"  Бетон: {total_concrete:.2f} м³\n"
+            f"  Прожилины: {total_logs_length:.1f} м\n\n"
+            f"📦 Зашивка:\n"
+            f"  Профлист С8: {sheets_count} листов\n"
+            f"  Площадь: {sheet_area:.1f} м²"
         )
         return result
 
 # ============================================================
-# ОБРАБОТЧИКИ КОМАНД
+# СТАРТ
 # ============================================================
 
 @dp.message(F.text == "/start")
 async def cmd_start(message: Message):
-    """Стартовое сообщение с главным меню."""
     await message.answer(
-        "👋 <b>Здравствуйте, прораб!</b>\n\n"
-        "Я помогу рассчитать материалы и объемы работ для:\n"
-        "• 🏠 Каркасных домов и пристроев\n"
-        "• 🧱 Дорожек, отмосток и площадок\n"
-        "• 🚧 Заборов из профлиста\n\n"
-        "<i>Выберите нужный раздел в меню ниже:</i>",
-        reply_markup=main_kb
+        "👋 Привет, Прораб!\n\n"
+        "Помогу рассчитать материалы для стройки.\n"
+        "Выбери что считаем:",
+        reply_markup=main_menu()
     )
 
-# ----------------------------------------------------------
-# ОБРАБОТКА КАРКАСНИКА / ПРИСТРОЯ
-# ----------------------------------------------------------
-
-@dp.message(F.text == "🏠 Каркасник/Пристрой")
-async def start_building(message: Message, state: FSMContext):
-    """Запрос размеров для каркасника."""
-    await message.answer(
-        "🏠 <b>Расчет каркасника / пристроя</b>\n\n"
-        "Введите размеры через запятую <b>в одной строке</b>:\n"
-        "<code>Длина, Ширина, Высота стен, Длина ската, Пристройка (0/1)</code>\n\n"
-        "📌 <b>Пример для дома:</b> 6, 8, 2.5, 4, 0\n"
-        "📌 <b>Пример для пристроя:</b> 4, 3, 2.5, 2.5, 1\n\n"
-        "<i>Где 0 — отдельное здание, 1 — пристрой к существующему</i>",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    await state.set_state(OrderStates.waiting_for_building)
-
-@dp.message(OrderStates.waiting_for_building)
-async def process_building(message: Message, state: FSMContext):
-    """Обработка размеров и расчет каркасника."""
-    try:
-        parts = [x.strip() for x in message.text.split(",")]
-        
-        if len(parts) < 5:
-            await message.answer(
-                "❌ <b>Ошибка!</b> Нужно 5 параметров.\n"
-                "Пример: <code>6, 8, 2.5, 4, 0</code>",
-                reply_markup=main_kb
-            )
-            await state.clear()
-            return
-        
-        length, width, height, slope = parts[0], parts[1], parts[2], parts[3]
-        is_annex = bool(int(parts[4]))
-        
-        calculator = Building(
-            length=length,
-            width=width,
-            wall_height=height,
-            roof_slope_len=slope,
-            is_annex=is_annex
-        )
-        
-        result = calculator.calculate()
-        
-        await message.answer(result, parse_mode="HTML")
-        await message.answer(
-            "✅ <b>Расчет завершен!</b> Выберите следующий раздел:",
-            reply_markup=main_kb
-        )
-        await state.clear()
-        
-    except (ValueError, IndexError) as e:
-        await message.answer(
-            f"❌ <b>Ошибка ввода!</b>\n"
-            f"Проверьте формат данных.\n"
-            f"Пример: <code>6, 8, 2.5, 4, 0</code>\n\n"
-            f"<i>Детали: {str(e)}</i>",
-            reply_markup=main_kb
-        )
-        await state.clear()
-
-# ----------------------------------------------------------
-# ОБРАБОТКА МОЩЕНИЯ / ДОРОЖЕК
-# ----------------------------------------------------------
-
-@dp.message(F.text == "🧱 Дорожки и брусчатка")
-async def start_paving(message: Message, state: FSMContext):
-    """Запрос параметров для мощения."""
-    await message.answer(
-        "🧱 <b>Расчет мощения и дорожек</b>\n\n"
-        "Введите параметры через запятую <b>в одной строке</b>:\n"
-        "<code>Площадь, Периметр, Глубина, Песок, Щебень, Кривая (0/1)</code>\n\n"
-        "📌 <b>Пример для прямой дорожки:</b> 30, 25, 0.3, 0.1, 0.15, 0\n"
-        "📌 <b>Пример для радиусной:</b> 40, 30, 0.3, 0.1, 0.15, 1\n\n"
-        "<i>Где 0 — прямая дорожка, 1 — криволинейная/радиусная</i>",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    await state.set_state(OrderStates.waiting_for_paving)
-
-@dp.message(OrderStates.waiting_for_paving)
-async def process_paving(message: Message, state: FSMContext):
-    """Обработка параметров и расчет мощения."""
-    try:
-        parts = [float(x.strip()) for x in message.text.split(",")]
-        
-        if len(parts) < 6:
-            await message.answer(
-                "❌ <b>Ошибка!</b> Нужно 6 параметров.\n"
-                "Пример: <code>30, 25, 0.3, 0.1, 0.15, 0</code>",
-                reply_markup=main_kb
-            )
-            await state.clear()
-            return
-        
-        calculator = Paving(
-            area=parts[0],
-            perimeter=parts[1],
-            depth=parts[2],
-            sand_thick=parts[3],
-            gravel_thick=parts[4],
-            is_curved=bool(int(parts[5]))
-        )
-        
-        result = calculator.calculate()
-        
-        await message.answer(result, parse_mode="HTML")
-        await message.answer(
-            "✅ <b>Расчет завершен!</b> Выберите следующий раздел:",
-            reply_markup=main_kb
-        )
-        await state.clear()
-        
-    except (ValueError, IndexError) as e:
-        await message.answer(
-            f"❌ <b>Ошибка ввода!</b>\n"
-            f"Проверьте формат данных.\n"
-            f"Пример: <code>30, 25, 0.3, 0.1, 0.15, 0</code>\n\n"
-            f"<i>Детали: {str(e)}</i>",
-            reply_markup=main_kb
-        )
-        await state.clear()
-
-# ----------------------------------------------------------
-# ОБРАБОТКА ЗАБОРА
-# ----------------------------------------------------------
-
-@dp.message(F.text == "🚧 Забор из профлиста")
-async def start_fence(message: Message, state: FSMContext):
-    """Запрос параметров для забора."""
-    await message.answer(
-        "🚧 <b>Расчет забора из профлиста С8</b>\n\n"
-        "Введите параметры через запятую <b>в одной строке</b>:\n"
-        "<code>Длина, Высота, Длина ворот, Длина калитки</code>\n\n"
-        "📌 <b>Пример:</b> 50, 1.8, 3, 1\n"
-        "📌 <b>Пример без ворот:</b> 30, 2.0, 0, 1\n\n"
-        "<i>Ворота и калитка вычитаются из общей длины забора</i>",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    await state.set_state(OrderStates.waiting_for_fence)
-
-@dp.message(OrderStates.waiting_for_fence)
-async def process_fence(message: Message, state: FSMContext):
-    """Обработка параметров и расчет забора."""
-    try:
-        parts = [float(x.strip()) for x in message.text.split(",")]
-        
-        if len(parts) < 4:
-            await message.answer(
-                "❌ <b>Ошибка!</b> Нужно 4 параметра.\n"
-                "Пример: <code>50, 1.8, 3, 1</code>",
-                reply_markup=main_kb
-            )
-            await state.clear()
-            return
-        
-        calculator = Fence(
-            total_length=parts[0],
-            height=parts[1],
-            gate_length=parts[2],
-            wicket_length=parts[3]
-        )
-        
-        result = calculator.calculate()
-        
-        await message.answer(result, parse_mode="HTML")
-        await message.answer(
-            "✅ <b>Расчет завершен!</b> Выберите следующий раздел:",
-            reply_markup=main_kb
-        )
-        await state.clear()
-        
-    except (ValueError, IndexError) as e:
-        await message.answer(
-            f"❌ <b>Ошибка ввода!</b>\n"
-            f"Проверьте формат данных.\n"
-            f"Пример: <code>50, 1.8, 3, 1</code>\n\n"
-            f"<i>Детали: {str(e)}</i>",
-            reply_markup=main_kb
-        )
-        await state.clear()
+@dp.message(F.text == "🔙 Отмена")
+async def cmd_cancel(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Возвращаюсь в главное меню.", reply_markup=main_menu())
 
 # ============================================================
-# ЗАПУСК БОТА
+# КАРКАСНИК - ПОШАГОВЫЙ ВВОД
+# ============================================================
+
+@dp.message(F.text == "🏠 Каркасник")
+async def building_start(message: Message, state: FSMContext):
+    await state.set_state(BuildingStates.waiting_length)
+    await message.answer(
+        "🏠 КАРКАСНИК\n\n"
+        "Шаг 1 из 6\n\n"
+        "Введите ДЛИНУ здания в метрах.\n"
+        "Пример: 6",
+        reply_markup=cancel_kb()
+    )
+
+@dp.message(BuildingStates.waiting_length)
+async def building_length(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if val <= 0 or val > 50:
+            raise ValueError
+        await state.update_data(length=val)
+        await state.set_state(BuildingStates.waiting_width)
+        await message.answer(
+            "Шаг 2 из 6\n\n"
+            "Введите ШИРИНУ здания в метрах.\n"
+            "Пример: 8",
+            reply_markup=cancel_kb()
+        )
+    except:
+        await message.answer("❌ Ошибка! Введите число от 1 до 50.\nПример: 6", reply_markup=cancel_kb())
+
+@dp.message(BuildingStates.waiting_width)
+async def building_width(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if val <= 0 or val > 50:
+            raise ValueError
+        await state.update_data(width=val)
+        await state.set_state(BuildingStates.waiting_height)
+        await message.answer(
+            "Шаг 3 из 6\n\n"
+            "Введите ВЫСОТУ стен в метрах.\n"
+            "Пример: 2.5",
+            reply_markup=cancel_kb()
+        )
+    except:
+        await message.answer("❌ Ошибка! Введите число от 1 до 10.\nПример: 2.5", reply_markup=cancel_kb())
+
+@dp.message(BuildingStates.waiting_height)
+async def building_height(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if val <= 0 or val > 10:
+            raise ValueError
+        await state.update_data(height=val)
+        await state.set_state(BuildingStates.waiting_roof_type)
+        await message.answer(
+            "Шаг 4 из 6\n\n"
+            "Выберите тип крыши:",
+            reply_markup=roof_type_kb()
+        )
+    except:
+        await message.answer("❌ Ошибка! Введите число от 1 до 10.\nПример: 2.5", reply_markup=cancel_kb())
+
+@dp.message(BuildingStates.waiting_roof_type)
+async def building_roof_type(message: Message, state: FSMContext):
+    text = message.text
+    if text == "🏠 Двускатная":
+        await state.update_data(roof_type="gable")
+        await state.set_state(BuildingStates.waiting_roof_slope)
+        await message.answer(
+            "Шаг 5 из 6\n\n"
+            "Введите ДЛИНУ СКАТА кровли в метрах.\n"
+            "Пример: 4",
+            reply_markup=cancel_kb()
+        )
+    elif text == "📐 Односкатная":
+        await state.update_data(roof_type="shed")
+        await state.set_state(BuildingStates.waiting_roof_slope)
+        await message.answer(
+            "Шаг 5 из 6\n\n"
+            "Введите ДЛИНУ СКАТА кровли в метрах.\n"
+            "Пример: 3",
+            reply_markup=cancel_kb()
+        )
+    elif text == "🚫 Нет крыши":
+        await state.update_data(roof_type="none", roof_slope=0)
+        await state.set_state(BuildingStates.waiting_is_annex)
+        await message.answer(
+            "Шаг 5 из 6\n\n"
+            "Это ПРИСТРОЙ к существующему зданию?",
+            reply_markup=yes_no_kb()
+        )
+    else:
+        await message.answer("Нажмите на одну из кнопок.", reply_markup=roof_type_kb())
+
+@dp.message(BuildingStates.waiting_roof_slope)
+async def building_roof_slope(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if val <= 0 or val > 20:
+            raise ValueError
+        await state.update_data(roof_slope=val)
+        await state.set_state(BuildingStates.waiting_is_annex)
+        await message.answer(
+            "Шаг 6 из 6\n\n"
+            "Это ПРИСТРОЙ к существующему зданию?",
+            reply_markup=yes_no_kb()
+        )
+    except:
+        await message.answer("❌ Ошибка! Введите число от 0.5 до 20.\nПример: 4", reply_markup=cancel_kb())
+
+@dp.message(BuildingStates.waiting_is_annex)
+async def building_annex(message: Message, state: FSMContext):
+    data = await state.get_data()
+    if message.text == "✅ Да":
+        data["is_annex"] = True
+    elif message.text == "❌ Нет":
+        data["is_annex"] = False
+    else:
+        await message.answer("Нажмите Да или Нет.", reply_markup=yes_no_kb())
+        return
+    
+    await state.set_state(BuildingStates.waiting_openings)
+    await message.answer(
+        "Введите площадь окон и дверей в м².\n"
+        "По умолчанию: 10 м²\n"
+        "Если не знаете - просто отправьте 0",
+        reply_markup=cancel_kb()
+    )
+
+@dp.message(BuildingStates.waiting_openings)
+async def building_openings(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if val == 0:
+            val = 10.0
+        await state.update_data(openings=val)
+    except:
+        await state.update_data(openings=10.0)
+    
+    data = await state.get_data()
+    calc = Building(
+        length=data["length"],
+        width=data["width"],
+        wall_height=data["height"],
+        roof_slope_len=data.get("roof_slope", 0),
+        is_annex=data.get("is_annex", False),
+        openings_area=data.get("openings", 10.0)
+    )
+    
+    await message.answer(calc.calculate(), reply_markup=main_menu())
+    await state.clear()
+
+# ============================================================
+# МОЩЕНИЕ - ПОШАГОВЫЙ ВВОД
+# ============================================================
+
+@dp.message(F.text == "🧱 Дорожки")
+async def paving_start(message: Message, state: FSMContext):
+    await state.set_state(PavingStates.waiting_area)
+    await message.answer(
+        "🧱 МОЩЕНИЕ\n\n"
+        "Шаг 1 из 4\n\n"
+        "Введите ПЛОЩАДЬ мощения в м².\n"
+        "Пример: 30",
+        reply_markup=cancel_kb()
+    )
+
+@dp.message(PavingStates.waiting_area)
+async def paving_area(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if val <= 0 or val > 1000:
+            raise ValueError
+        await state.update_data(area=val)
+        await state.set_state(PavingStates.waiting_perimeter)
+        await message.answer(
+            "Шаг 2 из 4\n\n"
+            "Введите ПЕРИМЕТР по бордюрам в метрах.\n"
+            "Пример: 25",
+            reply_markup=cancel_kb()
+        )
+    except:
+        await message.answer("❌ Ошибка! Введите число от 1 до 1000.\nПример: 30", reply_markup=cancel_kb())
+
+@dp.message(PavingStates.waiting_perimeter)
+async def paving_perimeter(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if val <= 0 or val > 500:
+            raise ValueError
+        await state.update_data(perimeter=val)
+        await state.set_state(PavingStates.waiting_is_curved)
+        await message.answer(
+            "Шаг 3 из 4\n\n"
+            "Дорожка КРИВОЛИНЕЙНАЯ (радиусная)?\n"
+            "Для прямой выберите Нет",
+            reply_markup=yes_no_kb()
+        )
+    except:
+        await message.answer("❌ Ошибка! Введите число от 1 до 500.\nПример: 25", reply_markup=cancel_kb())
+
+@dp.message(PavingStates.waiting_is_curved)
+async def paving_curved(message: Message, state: FSMContext):
+    if message.text == "✅ Да":
+        await state.update_data(is_curved=True)
+    elif message.text == "❌ Нет":
+        await state.update_data(is_curved=False)
+    else:
+        await message.answer("Нажмите Да или Нет.", reply_markup=yes_no_kb())
+        return
+    
+    await state.set_state(PavingStates.waiting_depth)
+    await message.answer(
+        "Шаг 4 из 4\n\n"
+        "Введите ГЛУБИНУ выемки грунта (корыто) в метрах.\n"
+        "По умолчанию: 0.3 м\n"
+        "Просто отправьте 0 если стандартная",
+        reply_markup=cancel_kb()
+    )
+
+@dp.message(PavingStates.waiting_depth)
+async def paving_depth(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if val <= 0:
+            val = 0.3
+        await state.update_data(depth=val)
+    except:
+        await state.update_data(depth=0.3)
+    
+    await state.update_data(sand=0.1, gravel=0.15)
+    
+    data = await state.get_data()
+    calc = Paving(
+        area=data["area"],
+        perimeter=data["perimeter"],
+        depth=data["depth"],
+        is_curved=data.get("is_curved", False)
+    )
+    
+    await message.answer(calc.calculate(), reply_markup=main_menu())
+    await state.clear()
+
+# ============================================================
+# ЗАБОР - ПОШАГОВЫЙ ВВОД
+# ============================================================
+
+@dp.message(F.text == "🚧 Забор")
+async def fence_start(message: Message, state: FSMContext):
+    await state.set_state(FenceStates.waiting_length)
+    await message.answer(
+        "🚧 ЗАБОР ИЗ ПРОФЛИСТА\n\n"
+        "Шаг 1 из 4\n\n"
+        "Введите ОБЩУЮ ДЛИНУ забора в метрах.\n"
+        "Пример: 50",
+        reply_markup=cancel_kb()
+    )
+
+@dp.message(FenceStates.waiting_length)
+async def fence_length(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if val <= 0 or val > 500:
+            raise ValueError
+        await state.update_data(length=val)
+        await state.set_state(FenceStates.waiting_height)
+        await message.answer(
+            "Шаг 2 из 4\n\n"
+            "Введите ВЫСОТУ забора в метрах.\n"
+            "Стандарт: 1.8 м или 2.0 м\n"
+            "Пример: 1.8",
+            reply_markup=cancel_kb()
+        )
+    except:
+        await message.answer("❌ Ошибка! Введите число от 1 до 500.\nПример: 50", reply_markup=cancel_kb())
+
+@dp.message(FenceStates.waiting_height)
+async def fence_height(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if val <= 0 or val > 5:
+            raise ValueError
+        await state.update_data(height=val)
+        await state.set_state(FenceStates.waiting_gate)
+        await message.answer(
+            "Шаг 3 из 4\n\n"
+            "Введите ШИРИНУ ВОРОТ в метрах.\n"
+            "Если ворот нет - введите 0\n"
+            "Стандарт: 3-4 метра",
+            reply_markup=cancel_kb()
+        )
+    except:
+        await message.answer("❌ Ошибка! Введите число от 0 до 5.\nПример: 1.8", reply_markup=cancel_kb())
+
+@dp.message(FenceStates.waiting_gate)
+async def fence_gate(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if val < 0 or val > 20:
+            raise ValueError
+        await state.update_data(gate=val)
+        await state.set_state(FenceStates.waiting_wicket)
+        await message.answer(
+            "Шаг 4 из 4\n\n"
+            "Введите ШИРИНУ КАЛИТКИ в метрах.\n"
+            "Если калитки нет - введите 0\n"
+            "Стандарт: 0.8-1.2 метра",
+            reply_markup=cancel_kb()
+        )
+    except:
+        await message.answer("❌ Ошибка! Введите число от 0 до 20.\nПример: 3", reply_markup=cancel_kb())
+
+@dp.message(FenceStates.waiting_wicket)
+async def fence_wicket(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if val < 0 or val > 5:
+            raise ValueError
+        await state.update_data(wicket=val)
+    except:
+        await state.update_data(wicket=0)
+    
+    data = await state.get_data()
+    calc = Fence(
+        total_length=data["length"],
+        height=data["height"],
+        gate_length=data.get("gate", 0),
+        wicket_length=data.get("wicket", 0)
+    )
+    
+    await message.answer(calc.calculate(), reply_markup=main_menu())
+    await state.clear()
+
+# ============================================================
+# ЗАПУСК
 # ============================================================
 
 async def main():
-    """Главная функция запуска бота."""
-    print("✅ Бот запущен и готов к работе!")
+    print("Бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
