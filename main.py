@@ -1132,10 +1132,6 @@ async def learn_get_key(message: Message, state: FSMContext):
 @dp.message(LearnSt.waiting_fakt_val)
 async def learn_get_val(message: Message, state: FSMContext):
     try:
-        fakt_val = float(message
-@dp.message(LearnSt.waiting_fakt_val)
-async def learn_get_val(message: Message, state: FSMContext):
-    try:
         fakt_val = float(message.text.replace(",", "."))
     except:
         await message.answer("❌ Введите число. Пример: 5.5", reply_markup=back_kb())
